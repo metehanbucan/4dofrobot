@@ -83,35 +83,58 @@ for i in range(len(t)):
     xs.append(x)
     ys.append(y)
 
-print(fk[0,3], fk[1,3])
 plt.plot(xs,ys)
 plt.title("End Effector Path")
 plt.axis("equal")
 plt.show()
 
 #end effector space trajectory
-TStart = M
-TEnd = FKinSpace(SList, ThetaList, M)
+q_start = np.array([0, np.pi/6, -np.pi/9])
+q_end = np.array([np.pi/4, np.pi/4, 0]) # Örnek bir bitiş noktası
 
+# Başlangıç ve bitiş matrislerini gerçek konumlarına çekelim (Space Frame)
+TStart = FKinSpace(SList, q_start, M)
+TEnd = FKinSpace(SList, q_end, M)
 
+# --- TWIST HESABI (Body Twist Yaklaşımı) ---
+# TEnd = TStart * exp([Vb]) -> Vb = log(inv(TStart) * TEnd)
 Trel = np.linalg.inv(TStart) @ TEnd
-Vb = se3_to_vec(matrix_log6(Trel))
+Vb_mat = matrix_log6(Trel)
+Vb = se3_to_vec(Vb_mat)
 
 Tf = 5
 N = 100
-ts = np.linspace(0,Tf,N)
+ts = np.linspace(0, Tf, N)
 traj = []
 
+# --- YÖRÜNGE OLUŞTURMA ---
 for t in ts:
-    s = cubic_time_scaling(t,Tf)
+    s = cubic_time_scaling(t, Tf)
+    # TStart'tan başlayarak Body Twist ile ilerle
+    # Bu, uç işlevcinin (end-effector) kendi eksenine göre düz hat çizmesini sağlar
     Tt = TStart @ matrix_exp6(vec_to_se3(Vb * s))
     traj.append(Tt)
 
+# --- TERS KİNEMATİK ---
 joint_traj = []
-q_guess = np.array([0,np.pi/6,-np.pi/6])
-for T in traj:
-    q_sol, success = IKinSpace(SList, M, T, q_guess, 200, 0.001, 50)
-    joint_traj.append(q_sol)
+q_guess = q_start.copy() # İlk tahmin başlangıç konumu olmalı
+
+for T_target in traj:
+    # SList (Space Screw Axes) kullanıyorsan IKinSpace kullanmalısın
+    # e_omega (tolerans) ve e_v parametrelerine dikkat et
+    #q_sol, success = IKinSpace(SList, M, T_target, q_guess, 0.001, 0.5, 200)
+    x = T_target[0,3]
+    y = T_target[1,3]
+    z = T_target[2,3]
+    q_sol, success = analytic_ik(x,y,z,L1,L2,L3)
+    
+    if success:
+        joint_traj.append(q_sol)
+        q_guess = q_sol # Bir sonraki adım için "sıcak başlangıç"
+        print(f"Uyarı: {T_target[:3,3]} noktasına ULAŞILDI!")
+    else:
+        # Hata alıyorsan muhtemelen hedef nokta robotun erişim alanı dışındadır
+        print(f"Uyarı: {T_target[:3,3]} noktasına ulaşılamadı!")
     q_guess = q_sol
 
 xs, ys, zs = [], [], []
@@ -125,3 +148,4 @@ plt.plot(xs,ys)
 plt.title("End Effector Trajectory")
 plt.axis("equal")
 plt.show()
+

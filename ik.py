@@ -16,8 +16,9 @@ def analytic_ik(x,y,z, L1, L2, L3):
 
     beta = np.arccos((L3**2 + L2**2 - r**2) / (2*L2*L3))
     theta3 = np.pi - beta
+    thetaList = np.array([theta1, theta2, theta3])
 
-    return radian_to_angle(theta1),radian_to_angle(theta2),radian_to_angle(theta3)
+    return thetaList, True
 
 def radian_to_angle(rad):
     return rad * 180 / np.pi
@@ -56,13 +57,13 @@ def IKinSpace(SList, M, Tsd, ThetaList0, eomg, ev, maxiter):
         Vb = se3_to_vec(matrix_log6(Tbd))
         err_omg = np.linalg.norm(Vb[0:3])
         err_v = np.linalg.norm(Vb[3:6])
-        if(err_omg < eomg and err_v < ev):
+        if(err_v < ev):
             for i in thetaList:
                 angleList.append(radian_to_angle(i))
-            return angleList,True
+            return thetaList,True
         J = jacobian_space(SList, thetaList)
-        thetaList += np.linalg.pinv(J) @ Vb
-    
-    for i in thetaList:
+        thetaList += np.linalg.pinv(J, rcond=1e-4) @ Vb
+    return thetaList, False
+    """ for i in thetaList:
                 angleList.append(radian_to_angle(i))
-    return angleList, False
+    return angleList, False """
