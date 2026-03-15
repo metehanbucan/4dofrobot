@@ -95,6 +95,12 @@ q_end = np.array([np.pi/4, np.pi/4, 0]) # Örnek bir bitiş noktası
 # Başlangıç ve bitiş matrislerini gerçek konumlarına çekelim (Space Frame)
 TStart = FKinSpace(SList, q_start, M)
 TEnd = FKinSpace(SList, q_end, M)
+Xstart = TStart[0,3]
+Ystart = TStart[1,3]
+Zstart = TStart[2,3]
+Xend = TEnd[0,3]
+Yend = TEnd[1,3]
+Zend = TEnd[2,3]
 
 # --- TWIST HESABI (Body Twist Yaklaşımı) ---
 # TEnd = TStart * exp([Vb]) -> Vb = log(inv(TStart) * TEnd)
@@ -112,8 +118,12 @@ for t in ts:
     s = cubic_time_scaling(t, Tf)
     # TStart'tan başlayarak Body Twist ile ilerle
     # Bu, uç işlevcinin (end-effector) kendi eksenine göre düz hat çizmesini sağlar
-    Tt = TStart @ matrix_exp6(vec_to_se3(Vb * s))
-    traj.append(Tt)
+    x = Xstart + (Xend - Xstart)*s
+    y = Xstart + (Yend - Ystart)*s
+    z = Xstart + (Zend - Zstart)*s
+    
+    #Tt = TStart @ matrix_exp6(vec_to_se3(Vb * s))
+    traj.append(np.array([x,y,z]))
 
 # --- TERS KİNEMATİK ---
 joint_traj = []
@@ -123,26 +133,26 @@ for T_target in traj:
     # SList (Space Screw Axes) kullanıyorsan IKinSpace kullanmalısın
     # e_omega (tolerans) ve e_v parametrelerine dikkat et
     #q_sol, success = IKinSpace(SList, M, T_target, q_guess, 0.001, 0.5, 200)
-    x = T_target[0,3]
-    y = T_target[1,3]
-    z = T_target[2,3]
+    x = T_target[0]
+    y = T_target[1]
+    z = T_target[2]
     q_sol, success = analytic_ik(x,y,z,L1,L2,L3)
     
     if success:
         joint_traj.append(q_sol)
         q_guess = q_sol # Bir sonraki adım için "sıcak başlangıç"
-        print(f"Uyarı: {T_target[:3,3]} noktasına ULAŞILDI!")
+        print(f"Uyarı: {T_target[0], T_target[1], T_target[2]} noktasına ULAŞILDI!")
     else:
         # Hata alıyorsan muhtemelen hedef nokta robotun erişim alanı dışındadır
-        print(f"Uyarı: {T_target[:3,3]} noktasına ulaşılamadı!")
+        print(f"Uyarı: {T_target[0], T_target[1], T_target[2]} noktasına ulaşılamadı!")
     q_guess = q_sol
 
 xs, ys, zs = [], [], []
 
 for T in traj:
-    xs.append(T[0,3])
-    ys.append(T[1,3])
-    zs.append(T[2,3])
+    xs.append(T[0])
+    ys.append(T[1])
+    zs.append(T[2])
 
 plt.plot(xs,ys)
 plt.title("End Effector Trajectory")
