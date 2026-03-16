@@ -1,5 +1,5 @@
 import numpy as np
-from math_utils import vec_to_so3, matrix_exp6, vec_to_se3
+from math_utils import vec_to_so3, matrix_exp6, vec_to_se3, skew
 
 def trans_to_rp(T):
     R = T[0:3, 0:3]
@@ -24,4 +24,17 @@ def jacobian_space(SList, ThetaList):
         T = T @ matrix_exp6(vec_to_se3(SList[:, i-1] * ThetaList[i-1]))
         Js[:,i] = adjoint(T) @ SList[:,i]
     return Js
+
+def ad(V):
+
+    w = V[:3]
+    v = V[3:]
+
+    adV = np.zeros((6,6))
+
+    adV[:3,:3] = skew(w)
+    adV[3:,3:] = skew(w)
+    adV[3:,:3] = skew(v)
+
+    return adV
 
