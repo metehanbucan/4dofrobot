@@ -4,10 +4,11 @@ from math_utils import *
 from ik import analytic_ik, IKinSpace, se3_to_vec, matrix_log6
 from trajectory import cubic_trajectory, cubic_time_scaling
 from jacobian import adjoint, ad
+import modern_robotics as mr
 
-L1 = 9.4
-L2 = 13.5
-L3 = 14.7
+L1 = 0.094
+L2 = 0.135
+L3 = 0.147
 
 M = np.array([
     [1,0,0,L2+L3],
@@ -90,8 +91,8 @@ plt.axis("equal")
 plt.show()
 
 #end effector space trajectory
-q_start = np.array([0, np.pi/6, -np.pi/9])
-q_end = np.array([np.pi/4, np.pi/4, 0]) # Örnek bir bitiş noktası
+q_start = np.array([0, 0, 0])
+q_end = np.array([-np.pi/4, np.pi/4, -np.pi/2]) # Örnek bir bitiş noktası
 
 # Başlangıç ve bitiş matrislerini gerçek konumlarına çekelim (Space Frame)
 TStart = FKinSpace(SList, q_start, M)
@@ -116,7 +117,7 @@ traj = []
 
 # --- YÖRÜNGE OLUŞTURMA ---
 for t in ts:
-    s = cubic_time_scaling(t, Tf)
+    s= cubic_time_scaling(t, Tf)
     # TStart'tan başlayarak Body Twist ile ilerle
     # Bu, uç işlevcinin (end-effector) kendi eksenine göre düz hat çizmesini sağlar
     x = Xstart + (Xend - Xstart)*s
@@ -129,24 +130,29 @@ for t in ts:
 # --- TERS KİNEMATİK ---
 joint_traj = []
 q_guess = q_start.copy() # İlk tahmin başlangıç konumu olmalı
-
-for T_target in traj:
+n = len(traj)
+for i in range (n):
     # SList (Space Screw Axes) kullanıyorsan IKinSpace kullanmalısın
     # e_omega (tolerans) ve e_v parametrelerine dikkat et
     #q_sol, success = IKinSpace(SList, M, T_target, q_guess, 0.001, 0.5, 200)
-    x = T_target[0]
-    y = T_target[1]
-    z = T_target[2]
+    x = traj[i][0]
+    y = traj[i][1]
+    z = traj[i][2]
     q_sol, success = analytic_ik(x,y,z,L1,L2,L3)
     
     if success:
         joint_traj.append(q_sol)
         q_guess = q_sol # Bir sonraki adım için "sıcak başlangıç"
-        print(f"Uyarı: {T_target[0], T_target[1], T_target[2]} noktasına ULAŞILDI!")
+        print(f"Uyarı: {x, y, z} noktasına ULAŞILDI!")
     else:
         # Hata alıyorsan muhtemelen hedef nokta robotun erişim alanı dışındadır
-        print(f"Uyarı: {T_target[0], T_target[1], T_target[2]} noktasına ulaşılamadı!")
+        print(f"Uyarı: {x,y,z} noktasına ulaşılamadı!")
     q_guess = q_sol
+
+joint_traj = np.array(joint_traj)
+dt = Tf / (N-1)
+djoint_traj = np.gradient(joint_traj,dt,axis=0)
+ddjoint_traj = np.gradient(djoint_traj,dt,axis=0)
 
 xs, ys, zs = [], [], []
 
@@ -205,12 +211,10 @@ def recursive_newton_euler_algorithm(Slist, Mlist, Glist, theta, thetadot, theta
             Fplus = AdTi[i].T @ F[i]
 
     return tau
-
-m1 = m2 = m3 = 1
-L1 = L2 = L3 = 1
-q = [0,0,0]
-qd = [0,0,0]
-qdd = [0,0,0]
+n = len(traj)
+m1= 1
+m2=1
+m3 =1
 
 M_10 = np.array([[1,0,0,0],
                  [0,1,0,-L1/2],
@@ -270,37 +274,29 @@ G3 = spatial_inertia(m3,I3)
 
 Glist = [G1,G2,G3]
 
-q = np.array([0,0,0])
-qd = np.zeros(3)
-qdd = np.zeros(3)
+
 
 g = np.array([0,-9.81,0])
+tau_history = []
+for i in range (n):
+    q = joint_traj[i]
+    qd = djoint_traj[i]
+    qdd = ddjoint_traj[i]
+    tau = recursive_newton_euler_algorithm(SList, MList, Glist, q, qd, qdd, g)
+    tau_history.append(tau)
+    print(tau)
+
+tau_history = np.array(tau_history)
 
 
-tau = recursive_newton_euler_algorithm(SList, MList, Glist, q, qd, qdd, g)
+plt.subplot(2, 1, 2)
+for i in range(3):
+    plt.plot(ts, tau_history[:, i], label=f'Tau {i+1}')
+plt.xlabel('Zaman (s)')
+plt.ylabel('Tork (Nm)')
+plt.title('Zamana Bağlı Gerekli Eklem Torkları (Inverse Dynamics)')
+plt.legend()
+plt.grid(True)
 
-print("sonuc:" ,tau)
-
-
-def mass_matrix(q):
-
-    n = len(q)
-    M = np.zeros((n,n))
-
-    for i in range(n):
-
-        qd = np.zeros(n)
-        qdd = np.zeros(n)
-        qdd[i] = 1
-
-        tau = recursive_newton_euler_algorithm(
-            SList, MList, Glist, q, qd, qdd, np.zeros(3)
-        )
-
-        M[:,i] = tau
-
-    return M
-
-M = mass_matrix([0.3,0.2,0.1])
-print(M)
-print(M.T)
+plt.tight_layout()
+plt.show()

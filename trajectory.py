@@ -13,4 +13,4 @@ def cubic_trajectory(q0, qf, T, steps=100):
     return t,q
 
 def cubic_time_scaling(t,T):
-    return 3*(t/T)**2 - 2*(t/T)**3
+    return (3 * (t**2) / (T**2)) - (2 * (t**3) / (T**3))
