@@ -39,8 +39,8 @@ angles,result = IKinSpace(SList, M, T, np.array([0, angle_to_radian(-30), angle_
 print(angles, result)
 
 
-q0 = np.array([0,0,0])
-qf = np.array([0, angle_to_radian(-148.5058203393992), angle_to_radian(139.31693409731233)])
+q0 = np.array([0, np.pi/2, np.pi/4])
+qf = np.array([-np.pi/4, np.pi/4, -np.pi/2])
 
 T = 5
 
@@ -91,7 +91,7 @@ plt.axis("equal")
 plt.show()
 
 #end effector space trajectory
-q_start = np.array([0, 0, 0])
+q_start = np.array([0, np.pi/2, np.pi/4])
 q_end = np.array([-np.pi/4, np.pi/4, -np.pi/2]) # Örnek bir bitiş noktası
 
 # Başlangıç ve bitiş matrislerini gerçek konumlarına çekelim (Space Frame)
@@ -278,16 +278,29 @@ Glist = [G1,G2,G3]
 
 g = np.array([0,-9.81,0])
 tau_history = []
+mr_tau_history = []
+newMList = []
+Ftip = np.zeros(6)
+for m in MList:
+    newMList.append(np.linalg.inv(m))
+
+newMList = np.array(newMList)
 for i in range (n):
     q = joint_traj[i]
     qd = djoint_traj[i]
     qdd = ddjoint_traj[i]
     tau = recursive_newton_euler_algorithm(SList, MList, Glist, q, qd, qdd, g)
     tau_history.append(tau)
-    print(tau)
+    tau_mr = mr.InverseDynamics(q, qd, qdd, g, Ftip, newMList, Glist, SList)
+    mr_tau_history.append(tau_mr)
+    print(f"--- ADIM {i} ---")
+    print(f"Kendi RNEA Torkum : {tau}")
+    print(f"MR Kütüphane Torku: {tau_mr}")
+    print("Fark:", tau - tau_mr)
+    print("-------------------")
 
 tau_history = np.array(tau_history)
-
+mr_tau_history = np.array(mr_tau_history)
 
 plt.subplot(2, 1, 2)
 for i in range(3):
@@ -299,4 +312,74 @@ plt.legend()
 plt.grid(True)
 
 plt.tight_layout()
+plt.show()
+
+
+# --- İLERİ DİNAMİK VE SİMÜLASYON (Euler Integration) ---
+
+# Başlangıç durumu (Robot duruyor)
+q_sim = joint_traj[0].copy()
+qdot_sim = djoint_traj[0].copy()
+
+simulated_joint_traj = []
+Ftip = np.zeros(6)
+
+sub_steps = 10
+dt_sub = dt / sub_steps
+
+# DİKKAT: Yerçekimi eksi olmalı! (RNEA hesabınla aynı)
+g = np.array([0, -9.81, 0]) 
+
+# 2. PD KONTROLCÜ KAZANÇLARI (Mıknatıs gibi yörüngeye yapıştıracak)
+Kp = np.array([5.0, 5.0, 5.0]) 
+Kd = np.array([0.2, 0.2, 0.2])      # Türevsel Kazanç (Sanal Amortisör)
+
+for i in range(N):
+    simulated_joint_traj.append(q_sim.copy())
+    
+    # 1. Hedef konum ve hız (İdeal RNEA yörüngesinden)
+    q_des = joint_traj[i]
+    qdot_des = djoint_traj[i]
+    tau_ideal = tau_history[i]
+    
+    # 2. İNTEGRASYON VE ANLIK KONTROL DÖNGÜSÜ
+    for _ in range(sub_steps):
+        # DİKKAT: PD Kontrolcüyü alt döngünün İÇİNE aldık!
+        # Robot her milisaniye nerede olduğuna bakıp torku anlık güncelleyecek.
+        error = q_des - q_sim
+        error_dot = qdot_des - qdot_sim
+        
+        # İdeal Tork + Düzeltici Tork
+        current_tau = tau_ideal + (Kp * error) + (Kd * error_dot)
+        
+        # Fizik motoru ivmeyi hesaplıyor
+        qddot_sim = mr.ForwardDynamics(q_sim, qdot_sim, current_tau, g, Ftip, newMList, Glist, SList)
+        
+        # Konum ve hızı Euler ile güncelliyoruz
+        qdot_sim = qdot_sim + (qddot_sim * dt_sub)
+        q_sim = q_sim + (qdot_sim * dt_sub)
+        
+    if np.any(np.isnan(q_sim)) or np.any(np.isinf(q_sim)):
+        print(f"HATA: Simülasyon {i}. adımda patladı!")
+        break
+
+simulated_joint_traj = np.array(simulated_joint_traj)
+
+# --- KARŞILAŞTIRMA GRAFİĞİ ---
+plt.figure(figsize=(10, 6))
+colors = ['blue', 'orange', 'green']
+plot_len = len(simulated_joint_traj)
+
+for i in range(3):
+    # Planlanan ideal yörünge (Kalın ve saydam)
+    plt.plot(ts[:plot_len], joint_traj[:plot_len, i], color=colors[i], linewidth=6, alpha=0.3, label=f'Planlanan q{i+1}')
+    
+    # Simüle edilen yörünge (İnce ve kesik çizgi)
+    plt.plot(ts[:plot_len], simulated_joint_traj[:, i], '--', color=colors[i], linewidth=2, label=f'Simüle q{i+1}')
+
+plt.xlabel('Zaman (s)')
+plt.ylabel('Eklem Açıları (rad)')
+plt.title('Kapalı Çevrim (Closed-Loop PD) Simülasyonu')
+plt.legend()
+plt.grid(True)
 plt.show()
